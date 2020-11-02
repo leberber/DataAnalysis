@@ -386,3 +386,4 @@ def standard_scaler(XX_train, XX_test):
     scaler.fit(XX_train)
     return scaler.transform(XX_train), scaler.transform(XX_test)
 #X_train,X_test=standard_scaler(XX_train, XX_test)
+# just added test
