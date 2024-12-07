@@ -1,0 +1,2544 @@
+1)  app.py
+
+
+from dash import ( 
+    Dash,
+    html,
+    ALL,
+    dcc,
+    callback,
+    Input,
+    Output,
+    State,
+    clientside_callback,
+    ClientsideFunction,
+    _dash_renderer,
+    page_registry,
+    no_update,
+    set_props,
+)
+from flask import Flask, request, redirect, session, url_for
+import json, os
+import dash_mantine_components as dmc
+import logging
+from authenticate import get_redirect_link, authenticate_user
+from utils import get_aws_secret, get_logger
+
+# Internal Imports
+from components.default_layout import default_layout
+from components.login import create_login_layout
+
+from helpers import iconify
+stylesheets = [
+    "https://unpkg.com/@mantine/dates@7/styles.css",
+    "https://unpkg.com/@mantine/code-highlight@7/styles.css",
+    "https://unpkg.com/@mantine/charts@7/styles.css",
+    "https://unpkg.com/@mantine/carousel@7/styles.css",
+    "https://unpkg.com/@mantine/notifications@7/styles.css",
+    "https://unpkg.com/@mantine/nprogress@7/styles.css",
+]
+
+_dash_renderer._set_react_version("18.2.0")
+
+
+env = os.environ.get("Environment", "local").lower()
+
+title_env = env.upper() + " - " if env != "prod" else ""
+
+
+
+server = Flask(__name__)
+env = os.environ.get("Environment", "local")
+if env != "local":
+    secret = get_aws_secret(env, "icf-autodrafter/secrets")
+    server.secret_key = secret["SECRET_KEY"]
+else:
+    server.secret_key = "SECRET_KEY_LOCAL"
+
+
+app = Dash(
+    __name__,
+    server=server,
+    use_pages=True,
+    suppress_callback_exceptions=True,
+    external_stylesheets=stylesheets,
+)
+
+def serve_layout(code=None):
+    # code = request.args.get("code")
+    # print(code)
+    if env == "local":
+        return  default_layout(email='Jon_Doe@vsx.com')
+    
+    elif code is not None:
+        authenticate_user(env)
+        
+    if "authenticated" in session and session["authenticated"]:
+        # print('session, ', session)
+        return default_layout(email=session['email'])
+    return create_login_layout(env)
+
+# app.layout = serve_layout
+
+app.layout =  dmc.MantineProvider(
+    id="mantine-provider",
+    children=[
+        dmc.Box(id='app-pages-content'),
+        dcc.Location(id="url"),
+
+    ]
+)
+
+@callback(
+    Output("app-pages-content", "children"),
+    Input("url", "search"),  
+)
+def serve_layout(search):
+    if search:
+        authenticate_user(env)
+    # if local is local bybpass authentification
+    if env == "loca":
+        return  default_layout(email='Jon_Doe@vsx.com')
+    # is user already in session log them in 
+    if session.get("authenticated"):
+        return default_layout(email=session['email'])
+    else:
+        return create_login_layout(env)
+
+
+clientside_callback(
+    ClientsideFunction(namespace="theme", function_name="theme_switcher_callback"),
+    Output("mantine-provider", "theme"),
+    Output("mantine-provider", "forceColorScheme"),
+    Input("color-scheme-toggle", "value"),
+)
+
+clientside_callback(
+    ClientsideFunction(namespace="helpers", function_name="hide_show_sidebar"),
+    Output("sidebar", "style"),
+    Output("container", "style"),
+    Input("hide-show-side-bar", "n_clicks"),
+)
+
+if __name__ == "__main__":
+    app.run_server(
+        # host='0.0.0.0',
+        port=8080,
+        # debug=True,
+    )
+else:
+    server = app.server
+    logger = get_logger()
+    if app.logger.handlers:
+        app.logger.addHandler(logger)
+
+2- components/default_layout.py
+
+import dash_mantine_components as dmc
+from dash import dcc,  html, page_container
+from helpers import iconify
+
+def default_layout (
+    email='john.doe@vrtx.com' , 
+    ):
+    username = email.split('@')[0].split('_')
+    initials=f"{username[0][0]}{username[1][0]}" 
+    username =f"{username[0]} {username[1]}"
+
+    default_l = dmc.Box(
+        children= [
+        dmc.Box(
+            dmc.Box(
+                children=[
+                    dmc.NavLink(
+                        label="Home",
+                        leftSection=iconify(icon="solar:home-2-line-duotone", width=20),
+                        href="/",
+                    ),
+                    dmc.NavLink(
+                        label="Autodrafter",
+                        leftSection=iconify(icon="hugeicons:analytics-02", width=20),
+                        href="/autodrafter",
+                    ),
+                    dmc.NavLink(
+                        label="Secret",
+                        leftSection=iconify(
+                            icon="solar:lock-keyhole-minimalistic-unlocked-line-duotone", width=20
+                        ),
+                        href="/secret",
+                    ),
+                ]
+            ),
+            id="sidebar",
+        ),
+        dmc.Box(
+            id="container",
+            pos="relative",
+            children=[
+                dmc.Box(
+                    w="100%",
+                    h="60px",
+                    pt=20,
+                    pb=10,
+                    pos="relative",
+                    style={
+                        "zIndex": "1000",
+                        "boxShadow": "rgba(27, 31, 35, 0.04) 0px 1px 0px, rgba(255, 255, 255, 0.25) 0px 1px 0px inset",
+                    },
+                    children=[
+                        dmc.ActionIcon(
+                            style={
+                                "position": "absolute",
+                                "left": "5px",
+                                "top": "73%",
+                                "transform": "translateY(-50%)",
+                                "display": "none",
+
+                            },
+                            size="md",
+                            variant="subtle",
+                            id="hide-show-side-bar",
+                            color="gray",
+                            n_clicks=0,
+                            children=iconify(icon="hugeicons:menu-02"),
+                        ),
+                        dmc.Box(
+                            style={
+                                "position": "absolute",
+                                # "left": "25px",
+                                "top": "60%",
+                                "transform": "translateY(-50%)",
+                            },
+                            children=[
+                                dmc.Image(
+                                    ml="-5px",
+                                    src="/assets/logo.svg",
+                                    fit="contain",
+                                    h=40,
+                                    mr="40px",
+                                    mb = 5
+                                ),
+                            ],
+                        ),
+                        dmc.Group(
+                            gap=5,
+                            style={
+                                "position": "absolute",
+                                "right": "20px",
+                                "bottom": "6px",
+                            },
+                            children=[
+                                dmc.Avatar(
+                                    # src=avatar,
+                                    initials,
+                                    size=35,
+                                    radius="xl",
+                                ),
+                                dmc.Box(
+                                    children=[
+                                        dmc.Text(username, fw="bold", lh=1.2, size="xs"),
+                                        dmc.Text(
+                                            email,
+                                            c="gray",
+                                            size="xs",
+                                            lh=1.2,
+                                        ),
+                                    ]
+                                ),
+                                dmc.SegmentedControl(
+                                    id="color-scheme-toggle",
+                                    value="Light",
+                                    size="xs",
+                                    radius=15,
+                                    px=10,
+                                    ml=30,
+                                    mt=10,
+                                    data=[
+                                        {
+                                            "value": "Light",
+                                            "label": dmc.Center(
+                                                [
+                                                    iconify(
+                                                        icon="ic:baseline-light-mode",
+                                                        width=16,
+                                                    ),
+                                                    html.Span(
+                                                        "Light",
+                                                        style={"paddingRight": "10px"},
+                                                    ),
+                                                ],
+                                                style={"gap": 10},
+                                            ),
+                                        },
+                                        {
+                                            "value": "Dark",
+                                            "label": dmc.Center(
+                                                [
+                                                    iconify(
+                                                        icon="ic:sharp-dark-mode",
+                                                        width=16,
+                                                    ),
+                                                    html.Span(
+                                                        "Dark",
+                                                        style={"paddingRight": "10px"},
+                                                    ),
+                                                ],
+                                                style={"gap": 10},
+                                            ),
+                                        },
+                                    ],
+                                ),
+                            ],
+                        ),
+                    ],
+                ),
+                dmc.Box(
+                    h="88%",
+                    children=[page_container],
+                ),
+            ],
+        ),
+        ]
+    )
+    return default_l
+
+3- components/login.py
+import dash_mantine_components as dmc
+from dash import dcc, html
+from helpers import iconify
+from utils import get_aws_secret
+from authenticate import get_redirect_link
+import dash_bootstrap_components as dbc
+loginButtonStyle =   {
+    "background": "#52247f",
+    "padding": "5px 20px" ,
+    "border": "none",
+    "borderRadius": "20px",
+    "color": "white",
+    "fontSize":"16px",
+    "width":"100px",
+  }
+
+def create_login_layout(env):
+    secrets_dict = get_aws_secret(env, "icf-autodrafter/secrets")
+    redirect_url = get_redirect_link(
+        secrets_dict["client-id"], secrets_dict["callback_url"]
+    )
+
+    login_layout = dmc.Center(
+                mt=100,
+                w='100%',
+                children= [
+                    dmc.Stack(
+                        px = 40,
+                        py = 20,
+                        w=400,
+                        align="center",
+                        style = {  
+                            "boxShadow":"rgba(82, 36, 127, 0.1) 0px 4px 10px",
+                            "borderRadius":'15px',
+                        },
+                        children = [
+                             dmc.Image(
+                                    src="/assets/logo.svg",
+                                    fit="contain",
+                                    w="150px",
+                                ),
+                             dmc.Text(
+                                "Vertex ICF AutoDrafter",
+                                variant="gradient",
+                                fw="bold",
+                                ta="center",
+                                gradient={"from": "#52247f", "to": "#52247f", "deg": 0},
+                                style={"fontSize": 20},
+                            ),
+                            dmc.Text(
+                                "This application automates the creation of the first draft of an ICF document. This tool is powered by AI and should be used for drafting purposes only.",
+                                style={"fontSize": 14},
+                            ),
+                            html.A(
+                                href=redirect_url, 
+                                style = {"textDecoration": "none"},
+                                children = [
+                                    dmc.Button(
+                                        "Sign In",
+                                        style = loginButtonStyle,
+                                        fullWidth=True,
+                                        radius='xl',
+                                    ),
+                                ]
+                            )
+                        ]
+                    )
+                ]
+            )
+    
+    return login_layout
+
+pages/autodrafter.py
+
+import pandas as pd
+import base64
+import subprocess
+import os
+from pathlib import Path
+import uuid
+
+from dash import (
+    Output,
+    Input,
+    callback,
+    State,
+    ctx,
+    ALL,
+    set_props,
+    no_update,
+    register_page,
+    dcc,
+    clientside_callback,
+    MATCH,
+    clientside_callback,
+    ClientsideFunction
+)
+
+import dash_mantine_components as dmc
+from helpers import iconify
+
+
+from pages.autodrafter.formInputs import form_progress, prepare_metadata
+from pages.autodrafter.layout import (
+    makeAccordion,
+    aside,
+    bottomNavigation,
+    preview_page,
+)
+from pages.autodrafter.language import SUBCATEGORIES, TAS, DCT_DF, replace_dct_choices
+
+
+register_page(__name__, path="/")
+
+df = pd.read_csv("metadata_updated.csv")
+
+metadata, df = prepare_metadata(df, TAS, SUBCATEGORIES)
+
+md_store = {}
+md_store['question_mapping'] = dict(zip(df["questionID"], df["QUESTION_ID_TEXT"]))
+md_store["IN_HOME_VISIT"] = df[df["QUESTION_ID_TEXT"] == "IN_HOME_VISIT"][ "description"].values[0]
+md_store["DOSING_DIARY_LANGUAGE"] = df[df["QUESTION_ID_TEXT"] == "DOSING_DIARY_LANGUAGE"]["description"].values[0]
+md_store["HAS_OPTIONAL_TESTS"] = df[df["QUESTION_ID_TEXT"] == "HAS_OPTIONAL_TESTS"]["description"].values[0]
+
+
+layout = dmc.Box(
+    pos="relative !important",
+    children=[
+        dcc.Store(id="metadata-store", data=md_store),
+        dcc.Store(id="visited-dct", data=False),
+
+        dcc.Store(id="app-front-end-store", data={}),
+        dcc.Store(id="app-front-end-store-docx", data={}),
+        dcc.Download(id="download-word-docx"),
+
+        preview_page,
+        dmc.Box(
+            display = 'flex',
+            children = [
+                dmc.Box(
+                    pos = 'relative',
+                    w = 'calc(100% - 270px)',
+                    h = 'calc(100vh - 60px)',
+                   
+                    
+                    children = [
+                        dmc.Box(
+                            children = [
+                                dmc.Text(
+                                "Vertex ICF AutoDrafter",
+                                # variant="gradient",
+                                mt=20,
+                                fw="bold",
+                                ta="center",
+                                c = "vp",
+                            
+                                style={"fontSize": 30},
+                                ),
+                                dmc.Text(
+                                    mt = '-7px',
+                                    c='dimmed', 
+                                    size='10px',
+                                    ta="center",
+                                    mb = 22,
+                                    children = ["This tool is powered by AI and should be used for drafting purposes only."]
+                                ),
+                            ]
+                        ),
+                        dmc.Box(
+                            pl = 40, pr= 20,
+                            h = 'calc(100% - 150px)',
+                            style = {'overflow':'auto'},
+                            children = [
+                                makeAccordion(metadata)
+                            ]
+                        ),
+                        dmc.Box( 
+                            h = 57,
+                            pr = 20,
+                            pos = 'relative',
+                            children = [
+                                bottomNavigation
+                            ]
+                            ),
+                    
+                    ]
+                ),
+                dmc.Box(
+                    
+                    w = '270px',
+                    mt = 50,
+                    mr= 10,
+                    mb=3,
+                    children = [
+                    aside
+                    
+                    ]
+                ),
+
+            ]
+        ),
+
+         dmc.Drawer(
+            position = 'bottom',
+            size = 'calc(100% - 10%)',
+            withOverlay = False,
+            id="tracked-changes-drawer",
+            closeButtonProps = {
+                'style':{'border':'0.5px solid purple', 'padding':'4px 8px', 'width':'85px'},
+                'icon':iconify('icon-park-outline:arrow-down', color='purple'),
+                'children':   dmc.Text('Close', size= 'lg'),
+            },
+            children = [
+                dmc.Center(
+                    mx = 300,
+                    children = [
+                        dmc.Carousel(
+                            children =  [dmc.CarouselSlide(dmc.Image("Slide 1",  src=f'assets/trackedchanges/Slide{i}.png')) for i in range(0, 11)],
+                            id="carousel-indicator-styles",
+                            withIndicators=True,
+                            nextControlIcon=iconify(icon="ic:outline-navigate-next", width=40, color= '##800080'),
+                            previousControlIcon=iconify(icon="ic:outline-navigate-before", width=40, color= '##800080'),    
+                            loop=True,
+                            classNames={"indicator": "dmc-indicator"},
+                        )
+                    ]
+                )
+            ]
+        ),
+    ],
+)
+
+
+@callback(
+    Input({"type": "vendor_dropdown", "index": ALL}, "value"),
+    Input({"type": "product_dropdown", "index": ALL}, "value"),
+    Input({"type": "consent_dropdown", "index": ALL}, "value"),
+    State("app-front-end-store", "data"),
+    
+    prevent_initial_call=True,
+)
+def dct_vendor_call_back(vendor_dropdown, product_dropdown, consent_dropdown, store):
+    def make_dct_dict(dct_list):
+        d = pd.DataFrame(dct_list).T
+        d.columns = ["VENDOR", "PRODUCT", "CONSENT"]
+        d = d.dropna(axis=0, how="any")
+        dct_dict = {}
+        if len(d) > 0:
+            d["VENDOR_PRODUCT"] = d["VENDOR"] + " - " + d["PRODUCT"]
+            optional_d = d[d["CONSENT"] == "Signature page; Consent - Mandatory/Default"]
+            mandatory_d = d[d["CONSENT"] == "Optional"]
+
+            dct_dict["VENDORS"] = d["VENDOR"].unique()
+            dct_dict["VENDOR_APPS"] = d["VENDOR_PRODUCT"].unique()
+            dct_dict["APP_DEFAULTS"] = mandatory_d["VENDOR_PRODUCT"].unique()
+            dct_dict["APP_OPTIONALS"] = optional_d["VENDOR_PRODUCT"].unique()
+
+            dct_dict = replace_dct_choices(DCT_DF, dct_dict)
+        return dct_dict
+
+    dct_dict = make_dct_dict([vendor_dropdown, product_dropdown, consent_dropdown])
+    
+    store = {**store, **dct_dict}
+    set_props("app-front-end-store", {"data": store})
+
+
+@callback(
+    Output("upload-step-percent-label", "children"),
+    Output("upload-step-percent-progress", "value"),
+    Output("upload-step-icon-progress", "children"),
+    Output("upload-step-icon-progress", "color"),
+    Output("upload-step-percent-progress", "color"),
+    Output("upload-content-area", "bg"),
+    Output("name-of-uploaded-file", "children"),
+    Input("document-uploader", "contents"),
+    State("document-uploader", "filename"),
+    State("app-front-end-store-docx", "data"),
+)
+def upload_callback(content, file_name, store):
+    if not file_name:
+        return no_update
+    
+    if file_name.split('.')[-1] not in ('docx', 'doc'):
+        set_props("upload-content-area", {"bg": '#ffcccc'})
+        set_props("name-of-uploaded-file", {"children": 'Only Word Documents are supported at this time.'})
+        return no_update 
+
+    store["uploded_docx_content"] = content
+    set_props("app-front-end-store-docx", {"data": store})
+
+    upload_progress_label = "0%" if not content else "100%"
+    upload_progress_value = 0 if not content else 100
+    upload_progress_icon = (
+        iconify("material-symbols-light:wifi-tethering-rounded", rotate=3)
+        if not content
+        else iconify("lets-icons:done-duotone", color="green")
+    )
+    upload_progress_color = "red" if not content else "green"
+    upload_bg = "rgba(64, 192, 87, 0.1)" if content else "none"
+    name_file = file_name if file_name else "Drag and drop files here to upload."
+    print('*'* 100)
+    return (
+        upload_progress_label,
+        upload_progress_value,
+        upload_progress_icon,
+        upload_progress_color,
+        upload_progress_color,
+        upload_bg,
+        name_file
+    )
+
+    
+@callback(
+    Output({"type": "step-percent-label", "index": ALL}, "children"),
+    Output({"type": "step-percent-progress", "index": ALL}, "value"),
+    Output({"type": "step-percent-progress", "index": ALL}, "color"),
+    Output({"type": "step-icon-progress", "index": ALL}, "children"),
+    Output({"type": "step-icon-progress", "index": ALL}, "color"),
+    Output("ring-progress-total-label", "children"),
+    Output("ring-progress-total-value", "sections"),
+    Output("generate-draft", "disabled"),
+    Output("regenerate-button", "disabled"),
+    Input({"type": "forms-user-inputs", "index": ALL}, "value"),
+    Input({"type": "other-user-inputs", "index": ALL}, "value"),
+    
+    Input("document-uploader", "filename"),
+    Input("visited-dct", "data"),
+    State("app-front-end-store", "data"),
+    State("metadata-store", "data"),
+    
+)
+def progress_callbakcs(values, txt_values,  file_name, isDct, store, md_store):
+
+    input_dict = {item["id"]["index"]: item["value"] for item in ctx.inputs_list[0]}
+    input_dict = {k: (None if v == "" else v) for k, v in input_dict.items()}
+    text_input_dict = {
+        item["id"]["index"]: item["value"] for item in ctx.inputs_list[1]
+    }
+
+    input_dict = {
+        key: (
+            input_dict.get(key)
+            if input_dict.get(key) is not None
+            else text_input_dict.get(key)
+        )
+        for key in input_dict.keys() | text_input_dict.keys()
+    }
+    
+
+    mapped_dict = {
+        md_store['question_mapping'].get(key.split("_")[1], key): value
+        for key, value in input_dict.items()
+    }
+
+    if mapped_dict.get("DOSING_DIARY_LANGUAGE") == "Yes":
+        mapped_dict["DOSING_DIARY_LANGUAGE"] = md_store['DOSING_DIARY_LANGUAGE']
+    if mapped_dict.get("IN_HOME_VISIT") == "Yes":
+        mapped_dict["IN_HOME_VISIT"] =md_store['IN_HOME_VISIT']
+    if mapped_dict.get("HAS_OPTIONAL_TESTS") == "Yes":
+        mapped_dict["HAS_OPTIONAL_TESTS"] = md_store['HAS_OPTIONAL_TESTS']
+
+    store = {**store, **mapped_dict}
+    
+    
+
+    set_props("app-front-end-store", {"data": store})
+
+    d = list(form_progress(input_dict).values())
+    text_labels = [f"{int(100-i)}%" for i in d]
+    content_percent = 100 if file_name and file_name.split('.')[-1] in ('docx', 'doc') else 0
+    isDCTViews = 100 if isDct else 0
+    progress = [int(100 - i) for i in d]
+    progress_all = [int(100 - i) for i in d] + [content_percent] + [isDCTViews]
+    total = int(sum(progress_all) / len(progress_all))
+
+    total_color = "red" if total != 100 else "green"
+    total_icon = (
+        f"{total}%"
+        if total != 100
+        else iconify("lets-icons:done-duotone", color="green", width=60)
+    )
+
+    icons = [
+        (
+            iconify("lets-icons:done-duotone", color="green")
+            if icon == 100
+            else iconify("material-symbols-light:wifi-tethering-rounded", rotate=3)
+        )
+        for icon in progress
+    ]
+
+    colors = ["green" if icon == 100 else "red" for icon in progress]
+
+    generate_button_state = True if total != 100 else False
+
+    total_progress = [{"value": total, "color": total_color}]
+
+    return [
+        text_labels,
+        progress,
+        colors,
+        icons,
+        colors,
+        total_icon,
+        total_progress,
+        generate_button_state,
+        generate_button_state
+    ]
+
+
+# clientside_callback(
+#     ClientsideFunction(namespace="frontend", function_name="dynamic_inputs"),
+    
+#     Output({"type": "step-percent-label", "index": ALL}, "children"),
+#     Output({"type": "step-percent-progress", "index": ALL}, "value"),
+#     Output({"type": "step-percent-progress", "index": ALL}, "color"),
+#     Output({"type": "step-icon-progress", "index": ALL}, "children"),
+#     Output({"type": "step-icon-progress", "index": ALL}, "color"),
+#     Output("ring-progress-total-label", "children"),
+#     Output("ring-progress-total-value", "sections"),
+#     Output("generate-draft", "disabled"),
+#     Output("regenerate-button", "disabled"),
+#     Output("download-button", "disabled"),
+#     Input({"type": "forms-user-inputs", "index": ALL}, "value"),
+#     Input({"type": "other-user-inputs", "index": ALL}, "value"),
+#     Input("highlight", "value"),
+#     Input("document-uploader", "filename"),
+#     State("app-front-end-store", "data"),
+#     State("metadata-store", "data"),
+#     prevent_initial_call=True
+# )
+
+
+
+@callback(
+    Output("dct-step-percent-label", "children"),
+    Output("dct-step-percent-progress", "value"),
+    Output("dct-step-icon-progress", "children"),
+    Output("dct-step-icon-progress", "color"),
+    Output("dct-step-percent-progress", "color"),
+    Input("checkbox-filters-accordion", "value"),
+)
+
+def accordion_clicks(value):
+    if value =='dct':
+        set_props("visited-dct", {"data": True})
+        return (
+            '100%',
+            100,
+            iconify("lets-icons:done-duotone", color="green"),
+            'green',
+            'green',
+        )
+    return no_update
+    
+clientside_callback(
+    """function ipenTrackedChages(n_clicks) {
+    if (n_clicks===0){
+    return false
+    }
+
+    return true
+    }
+    """,
+  Output("tracked-changes-drawer", "opened"),
+    Input("tracked-changes-btn", "n_clicks"),
+    prevent_intial_call=True,
+)
+
+clientside_callback(
+    """function updateLoadingState(n_clicks) {
+    const no_update = window.dash_clientside.no_update
+    if (!n_clicks){
+        return no_update
+    }
+    return true
+    }
+    """,
+    Output("generate-draft", "loading"),
+    Input("generate-draft", "n_clicks"),
+    prevent_intial_call=True,
+)
+
+clientside_callback(
+    """function disableEnablePreview(value) {
+    const no_update = window.dash_clientside.no_update
+    if (value ==='False'){
+        return true
+    }
+    return no_update
+    }
+    """,
+    Output("preview-draft", "disabled"),
+    Input("disable-preview", "value"),
+
+    prevent_intial_call=True,
+)
+
+clientside_callback(
+    """function openModalAndTriggerLoadding(n_clicks) {
+    const no_update = window.dash_clientside.no_update
+    if (!n_clicks){
+        return no_update
+    }
+    return [true, true]
+    }
+    """,
+    Output("loading-overlay", "visible"),
+    Output("loading-overlay-message", "visible"),
+    Input("generate-draft", "n_clicks"),
+    Input("regenerate-button", "n_clicks"),
+    prevent_intial_call=True,
+)
+
+@callback(
+    Output("download-word-docx", "data"),
+    Input("download-button", "n_clicks"),
+    State("app-front-end-store", "data"),
+    prevent_initial_call=True,
+)
+def func(n_clicks, store):
+
+    if not store.get("generated_docx_content"):
+        return no_update
+    wordContent = store["generated_docx_content"]
+    # _, content_string = wordContent.split(",")
+    contents = base64.b64decode(wordContent)
+    return dcc.send_bytes(contents, f"autodrafted_icf.docx")
+
+
+@callback(
+    Input("preview-draft", "n_clicks"),
+    State("preview-pdf-modal", "opened"),
+    prevent_initial_call=True,
+)
+def func(n_clicks, opened):
+    set_props("preview-pdf-modal", {"opened": not opened})
+
+clientside_callback(
+    """function hideShowInputs(value) {
+    const no_update = window.dash_clientside.no_update
+    if (value) {
+            return ["", "none"];
+        } else {
+            return [no_update, "block"];
+        }
+    return [no_update, no_update]
+    }
+    """,
+    Output({"type": "forms-user-inputs", "index": MATCH}, "value"),
+    Output({"type": "forms-user-inputs", "index": MATCH}, "display"),
+    Input({"type": "other-user-inputs", "index": MATCH}, "value"),
+
+    prevent_initial_call=True,
+)
+
+pages/autodrafter/dct.py
+from dash import html, dcc, Output, Input, State, MATCH, ALL, Patch, ctx, callback
+import dash_mantine_components as dmc
+import pandas as pd
+
+import base64
+from helpers import iconify
+
+from pages.autodrafter.language import DCT_DF
+
+NUM_COLS = 3
+
+
+# Add Row Button Clicked -> Add Row
+def make_row(row_number):
+    vendors = DCT_DF["Vendor"].unique()
+    vendor_dropdown = dmc.Select(
+        data=vendors,
+        mx=7,
+        my=3,
+        id={"type": "vendor_dropdown", "index": row_number},
+        placeholder="Select a Vendor",
+        value=None,
+    )
+
+    product_dropdown = dmc.Select(
+        data=[],
+        mx=7,
+        my=3,
+        id={"type": "product_dropdown", "index": row_number},
+        placeholder="Select a Product",
+        disabled=True,
+        value=None,
+    )
+
+    consent_dropdown = dmc.Select(
+        data=[],
+        mx=7,
+        my=3,
+        id={"type": "consent_dropdown", "index": row_number},
+        placeholder="Select Consent Language",
+        disabled=True,
+        value=None,
+    )
+
+    remove_button = (
+        dmc.Button(
+            "Remove",
+            variant="subtle",
+            id={"type": "remove_button", "index": row_number},
+            leftSection=iconify(icon="simple-line-icons:minus", width=20),
+            color="vp",
+        ),
+    )
+
+    return html.Tr(
+        [
+            html.Td(vendor_dropdown),
+            html.Td(product_dropdown),
+            html.Td(consent_dropdown),
+            html.Td(remove_button),
+        ],
+        id={"type": "table_row", "index": row_number},
+    )
+
+
+dct_layout = dmc.Box(
+    # pt = 40,
+    pb=30,
+    children=[
+        dmc.Box(
+            children=[
+                dmc.Table(
+                    # horizontalSpacing= 80,
+                    verticalSpacing=0,
+                    styles={
+                        "thead": {"border": "none"},
+                        "tr": {"border": "none"},
+                    },
+                    children=[
+                        dmc.TableThead(
+                            dmc.TableTr(
+                                [
+                                    dmc.TableTh("Vendor"),
+                                    dmc.TableTh("Product"),
+                                    dmc.TableTh("Consent Language"),
+                                ]
+                            )
+                        ),
+                        dmc.TableTbody(
+                            children=[
+                                make_row(1),
+                                make_row(2),
+                            ],
+                            id="dct_table_body",
+                        ),
+                    ],
+                    id="dct_table",
+                ),
+                dmc.Grid(
+                    [
+                        dmc.GridCol(
+                            dmc.Button(
+                                "Add Row",
+                                id="add_row_button",
+                                n_clicks=4,
+                                variant="subtle",
+                                leftSection=iconify(
+                                    icon="simple-line-icons:plus", width=20
+                                ),
+                                color="vp",
+                            )
+                        )
+                    ]
+                ),
+            ],
+        ),
+    ],
+)
+
+# Open Modal
+
+
+@callback(
+    Output("dct_table_body", "children"),
+    [Input("add_row_button", "n_clicks")],
+    Input({"type": "remove_button", "index": ALL}, "n_clicks"),
+    [State("dct_table_body", "children")],
+    prevent_initial_call=True,
+)
+def add_delete_row(n_clicks, _, children):
+    if ctx.triggered_id == "add_row_button" or not ctx.triggered_id:
+        children.append(make_row(n_clicks))
+    else:
+        delete_index = ctx.triggered_id["index"]
+        children = [
+            elem for elem in children if elem["props"]["id"]["index"] != delete_index
+        ]
+    return children
+
+
+# Vendor Selected
+@callback(
+    Output({"type": "product_dropdown", "index": MATCH}, "data"),
+    Output({"type": "product_dropdown", "index": MATCH}, "disabled"),
+    Input({"type": "vendor_dropdown", "index": MATCH}, "value"),
+    prevent_initial_call=True,
+)
+def vendor_clicked(vendor_value):
+    product_df = DCT_DF[DCT_DF["Vendor"] == vendor_value]
+    products = product_df["ICF Topic"].unique()
+    return products, len(products) == 0
+
+
+# Vendor or Product Chosen
+@callback(
+    Output({"type": "consent_dropdown", "index": MATCH}, "data"),
+    State({"type": "vendor_dropdown", "index": MATCH}, "value"),
+    Input({"type": "product_dropdown", "index": MATCH}, "value"),
+    prevent_initial_call=True,
+)
+def product_clicked(vendor_value, product_value):
+    if vendor_value is None or product_value is None:
+        return []
+    unique_key = vendor_value + " - " + product_value
+    df = DCT_DF.loc[unique_key]
+    default_language = df.loc["Signature page; Consent - Mandatory/Default"]
+    optional_language = df.loc["Consent - Optional"]
+
+    return_list = []
+    if default_language is not None and not pd.isnull(default_language):
+        return_list.append("Default/Mandatory")
+    if optional_language is not None and not pd.isnull(optional_language):
+        return_list.append("Optional")
+
+    return return_list
+
+
+# Disable Consent if Options are length 0 (i.e. no vendor or product chosen)
+@callback(
+    Output({"type": "consent_dropdown", "index": MATCH}, "disabled"),
+    Output({"type": "consent_dropdown", "index": MATCH}, "value"),
+    Input({"type": "consent_dropdown", "index": MATCH}, "data"),
+    prevent_initial_call=True,
+)
+def consent_populated(consent_options):
+    return len(consent_options) == 0, "Default/Mandatory"
+
+pages/formInputs.py
+
+import dash_mantine_components as dmc
+from helpers import iconify
+import ast
+import pandas as pd
+import ast
+
+
+def prepare_metadata(df, SUBCATEGORIES, TAS):
+
+    SUBCATEGORIES_OPTIONS= [[str(i), str(i)] for i in SUBCATEGORIES] + [['None of these', 'None']]
+    SUBCATEGORIES = df.iloc[-1:].copy()
+    SUBCATEGORIES['QUESTION_ID_TEXT']= 'TA'
+    SUBCATEGORIES['questionID']= 'xxxxxx'
+    SUBCATEGORIES['question']= 'What TA should be referenced from the Language Library?'
+    SUBCATEGORIES['options']=  f"{SUBCATEGORIES_OPTIONS}"
+    SUBCATEGORIES['value']=  ['None']
+    SUBCATEGORIES['stepID']= 2
+    SUBCATEGORIES['stepName']= 'LSAM Expertise Questions (Mandatory)'
+    SUBCATEGORIES['optional_text_input']= False
+    SUBCATEGORIES['input_type']= 'Radio'
+
+    TAS_OPTIONS = [[str(i), str(i)] for i in TAS] + [['None of these', 'None of these']]
+    TAS = df.iloc[-1:].copy()
+    TAS['QUESTION_ID_TEXT']= 'TA_SUBCATEGORIES'
+    TAS['questionID']= 'x112pd'
+    TAS['question']= 'What additional language should be pulled from the Language Library? (check all that apply)'
+    TAS['options']=  f"{TAS_OPTIONS}"
+    TAS['value']= "['None of these']"
+    TAS['input_type']= 'Checkbox'
+    TAS['stepID']= 2
+    TAS['optional_text_input']= False
+
+    df= pd.concat([SUBCATEGORIES, TAS,  df])
+
+    df['value'] = df['value'].fillna('')
+    df['stepID'] = df['stepID'].astype('str')
+    df['options'] = df['options'].fillna('[]')
+    df['options'] = df['options'].apply(ast.literal_eval)
+
+    records= df.to_dict('records')
+
+    transformed_data = {}
+    for item in records:
+
+        step_id = item['stepID']
+        if step_id not in transformed_data:
+            transformed_data[step_id] = {
+                'stepID': item['stepID'],
+                'stepName': item['stepName'],
+                'stepIcon': item['stepIcon'],
+                'stepDescription': item['stepDescription'],
+                'questions': []
+            }
+        
+        question_details = {
+            'questionID': item['questionID'],
+            'question': item['question'],
+            'options': item['options'],
+            'value': item['value'],
+            'input_type': item['input_type'],
+            'description': item['description'],
+            'optional_text_input': item['optional_text_input']
+
+        }
+        transformed_data[step_id]['questions'].append(question_details)
+
+    return transformed_data, df
+
+
+options_style  = {'label':{'color':'gray'}}
+
+def label(label, description='', icon='duo-icons:info' ):
+    return dmc.Box(
+        display='flex',
+        mt = 5,
+        mb = 10,
+        children = [
+            dmc.Tooltip(
+                dmc.Box(iconify(icon, color = '#80b3ff', width = 25) ),
+                label=description,
+                withArrow=True,
+                multiline = True,
+                position = 'botton-start',
+                fw = 400,
+                w = 300,
+            ),
+            dmc.Text(label, c = '#404040', ml = 6, size = 'xs')
+        ]
+    )
+
+
+def checkbox(item_dict, other=False):
+    dispaly='block'
+    if not other:
+        dispaly='none'
+        
+    textinput = dmc.TextInput( 
+        ml = 20,
+        w = 150,
+        value=None,
+        display=dispaly, 
+        id={'type':'other-user-inputs', 'index':f"{item_dict['stepID']}_{item_dict['questionID']}"},
+        placeholder='Other'
+    )
+
+    def ensure_list_of_lists(input_list):
+        if all(not isinstance(i, list) for i in input_list):
+            return [[i, i] for i in input_list]
+        return input_list 
+
+    
+    options = ensure_list_of_lists(item_dict['options'])
+
+    myInput =  dmc.CheckboxGroup(
+        ml = 20,
+        id={'type':'forms-user-inputs', 'index':f"{item_dict['stepID']}_{item_dict['questionID']}"},
+        value = ast.literal_eval(item_dict['value']),
+        children=dmc.Group(
+            children = [
+                dmc.Checkbox(
+                    label=l, 
+                    value=k, size="xs", styles =options_style
+                ) for l, k in options
+            ]
+        )
+    )
+    return dmc.Box(
+        p = 10,
+        m = 10,
+        style = {  
+            'boxShadow':'rgba(0, 0, 0, 0.1) 0px 1px 2px 1px',
+            "borderRadius":"10px",
+        },
+        children = [
+            label(item_dict['question'], description=item_dict['description'], ),
+            dmc.Group([myInput, textinput ])
+        ]
+    )
+
+def radio(item_dict, other=False):
+    dispaly='block'
+    if not other:
+        dispaly='none'
+
+    textinput = dmc.TextInput( 
+        ml = 20,
+        value=None,
+        w = 150,
+        display=dispaly, 
+        id={'type':'other-user-inputs', 'index':f"{item_dict['stepID']}_{item_dict['questionID']}"},
+        placeholder='Other'
+    )
+
+    def ensure_list_of_lists(input_list):
+        if all(not isinstance(i, list) for i in input_list):
+            return [[i, i] for i in input_list]
+        return input_list 
+
+    options = ensure_list_of_lists(item_dict['options'])
+
+
+  
+    myInput =  dmc.RadioGroup(
+        ml = 20,
+        id={'type':'forms-user-inputs', 'index':f"{item_dict['stepID']}_{item_dict['questionID']}"},
+        value=item_dict['value'],
+        children=dmc.Group(
+            children = [
+                dmc.Radio(
+                    label = l, 
+                    value=v, 
+                    styles =options_style,
+                    size = 'xs'
+                ) for l, v in options
+            ]
+        )
+    )
+    return dmc.Box(
+        p = 10,
+        m = 10,
+           style = {  
+                'boxShadow':'rgba(0, 0, 0, 0.1) 0px 1px 2px 1px',
+                "borderRadius":"10px",
+            },
+        children = [
+            label(item_dict['question'], description=item_dict['description'] ),
+            dmc.Group([myInput, textinput])
+        ]
+    )
+
+def segmentcontrol(item_dict):
+    myInput = dmc.SegmentedControl(
+        ml = 20,
+        size = 'sm',
+        radius = 'md',
+        value = item_dict['value'],
+        id={'type':'forms-user-inputs', 'index':f"{item_dict['stepID']}_{item_dict['questionID']}"},
+        data=item_dict['options'],
+    )
+
+    return  dmc.Box(
+        children = [
+            label(item_dict['question'], description=item_dict['description']),
+            myInput
+        ]
+    )
+
+def chip(item_dict, multiple=False):
+    myInput =  dmc.ChipGroup(
+        id={'type':'forms-user-inputs', 'index':f"{item_dict['stepID']}_{item_dict['questionID']}"},
+        deselectable=multiple,
+        value=item_dict['value'],
+        multiple = multiple,
+        children =[
+            dmc.Chip(
+                item, 
+                value=item,  
+                variant='light',
+                styles =options_style
+            ) for item in item_dict['options']
+        ]
+    )
+    return  dmc.Box(
+        children = [
+            label(item_dict['question'], description=item_dict['description']),
+            dmc.Group(myInput, gap =4, ml = 20)
+        ]
+    )
+ 
+def textinput(item_dict):
+ 
+    textinput = dmc.TextInput( 
+        ml = 20,
+        value='dummy input',
+        w = 100,
+        display='none', 
+        id={'type':'other-user-inputs', 'index':f"{item_dict['stepID']}_{item_dict['questionID']}"},
+        placeholder='Other'
+    )
+
+
+    myInput =  dmc.TextInput( 
+        ml = 20,
+        value=None,
+        w = 300,
+        size = 'xs',
+        id={'type':'forms-user-inputs', 'index':f"{item_dict['stepID']}_{item_dict['questionID']}"},
+        placeholder=item_dict['value']
+    )
+    return  dmc.Box(
+        p = 10,
+        m = 10,
+        style = {  
+            'boxShadow':'rgba(0, 0, 0, 0.1) 0px 1px 2px 1px',
+            "borderRadius":"10px",
+        },
+        children = [
+            label(item_dict['question'], description=item_dict['description']),
+            dmc.Group([myInput,textinput], gap =4)
+        ]
+    )
+
+def make_questions (step):
+    step_questions = step['questions']
+    l = []
+    for item_dict in step_questions:
+        
+        item_dict['stepID'] = step['stepID']
+        if item_dict['input_type'] == 'Radio':
+            item = radio(item_dict, item_dict['optional_text_input'])
+        elif item_dict['input_type'] == 'Checkbox':
+            item = checkbox(item_dict, item_dict['optional_text_input'])
+        elif item_dict['input_type'] == 'CheckboxChip':
+            item = chip(item_dict, multiple=True)
+        elif item_dict['input_type'] == 'RadioChip':
+            item = chip(item_dict, multiple=False)
+        elif item_dict['input_type'] == 'SegmentedControl':
+            item = segmentcontrol(item_dict)
+        elif item_dict['input_type'] == 'TextInput':
+            item = textinput(item_dict)
+        else:
+            raise ValueError(f"The Input for Question {item_dict['questionID']} is not recognized")
+
+        l.append(item)
+    import math
+    half = math.ceil(len(l) / 2) 
+
+    return dmc.SimpleGrid(
+        cols={ 'base': 1, 'md': 2, 'lg': 2, 'xl':2 },
+        spacing={"base": 10, "sm": "xl"},
+        verticalSpacing={"base": "md", "sm": "xl"},
+        children=[
+            dmc.Box(l[:half], p = 10, style = {"boxShadow": "rgba(0, 0, 0, 0.05) 0px 0px 0px 1px", "borderRadius":15}),
+            dmc.Box(l[half:],  p = 10, style = {"boxShadow": "rgba(0, 0, 0, 0.05) 0px 0px 0px 1px", "borderRadius":15}),
+            
+        ],
+    )
+    
+
+def form_progress(data):
+    """Calculate the percentage of None values for each group in a dictionary.
+    
+    Args:
+        data (dict): A dictionary where keys are in the format '<group>_<id>' 
+                     and values can be any type, including None.
+                     
+    Returns:
+        dict: A dictionary with groups as keys and percentages of None values as values.
+    """
+    # Initialize dictionaries for total and None counts per group
+    total_count = {}
+    none_count = {}
+
+    # Count total and None values per group
+    for key, value in data.items():
+        group = key.split('_')[0]  # Extract group from key
+        total_count[group] = total_count.get(group, 0) + 1
+        if value is None or value ==[] or value =='':
+            none_count[group] = none_count.get(group, 0) + 1
+
+    # Calculate the percentage of None values for each group
+    none_percentage = {
+        group: (none_count.get(group, 0) / total_count[group]) * 100
+        for group in total_count
+    }
+    
+    none_percentage = dict(sorted(none_percentage.items(), key=lambda item: int(item[0])))
+    # none_percentage = dict(sorted(none_percentage.items(), key=lambda item: int(item[0]), reverse=True))
+
+    return none_percentage
+
+
+pages/autodrafter/language.py
+
+import pandas as pd
+
+
+def add_instructional_tags(s):
+    if pd.isnull(s):
+        return ""
+    s_list = s.split("\n")
+    s_list = [
+        ("<instructions>" + elem if not pd.isnull(elem) and elem != "" else "")
+        for elem in s_list
+    ]
+    return "\n".join(s_list)
+
+
+def replace_dct_choices(dct_df, choices):
+    """Populate the lookup_dict with the fill in texts.
+
+    Args:
+        dct_df (pd.DataFrame): dataframe for dct language library
+        choices (int): stored dict of choices
+
+    Returns:
+        choices (dict): dict of the "dct text" fields with full text values
+    """
+    vendorapps = choices["VENDOR_APPS"]
+    vendor_defaults = choices["APP_DEFAULTS"]
+    vendor_optionals = choices["APP_OPTIONALS"]
+
+    # Helper Function creates full text to copy/paste given a column fieldname and all the vendorapp combos
+    def create_full_text_from_df(df, field, vendor_apps):
+        ret_df = (
+            df.loc[vendor_apps].reset_index().dropna(subset=field, how="any", axis=0)
+        )
+
+        # If field is ICF Section 4 use Instructional Text
+        if field == "Approved Adult Language - Procedural - ICF Section 4":
+            ret_df["Instructional Text"] = ret_df["Instructional Text"].map(
+                add_instructional_tags
+            )
+            ret_df["FULL_TEXT"] = (
+                ret_df["Instructional Text"]
+                + "\n["
+                + ret_df["UNIQUE_APPS"]
+                + "]\n"
+                + ret_df[field]
+            )
+            # If field is Data Privacy, use Personal Info data as instructional Text
+        elif field == "Adult Language - Data Privacy; Section 20":
+            pinfo_colname = "Personal / Technical / Account / Delivery information collected - to complete placeholder in Data Privacy Section"
+            ret_df[pinfo_colname] = (
+                "Please add the following personal data terms as applicable:\n"
+                + ret_df[pinfo_colname]
+            )
+            ret_df[pinfo_colname] = ret_df[pinfo_colname].map(add_instructional_tags)
+            ret_df["FULL_TEXT"] = (
+                ret_df[pinfo_colname]
+                + "\n["
+                + ret_df["UNIQUE_APPS"]
+                + "]\n"
+                + ret_df[field]
+            )
+        else:
+            ret_df["FULL_TEXT"] = "[" + ret_df["UNIQUE_APPS"] + "]\n" + ret_df[field]
+        return "\n\n".join(list(ret_df["FULL_TEXT"]))
+
+    procedures = create_full_text_from_df(
+        dct_df, "Approved Adult Language - Procedural - ICF Section 4", vendorapps
+    )
+    default_consents = create_full_text_from_df(
+        dct_df, "Signature page; Consent - Mandatory/Default", vendor_defaults
+    )
+    optional_consents = create_full_text_from_df(
+        dct_df, "Consent - Optional", vendor_optionals
+    )
+    privacies = create_full_text_from_df(
+        dct_df, "Adult Language - Data Privacy; Section 20", vendorapps
+    )
+
+    # Populate LL choice fields
+    choices["LL_VENDOR_PROCEDURES"] = procedures
+    choices["LL_CONSENTS"] = default_consents + "\n\n" + optional_consents
+    choices["LL_DATA_PRIVACIES"] = privacies
+
+    return choices
+
+
+def get_ta_df(path):
+    df = pd.read_excel(
+        path,
+        sheet_name="TA Specific",
+        dtype=str,
+    )
+    df["TA"] = df["TA"].map(
+        lambda x: None if pd.isnull(x) or x.strip() == "" else x.strip()
+    )
+    df["Subcategory"] = df["Subcategory"].map(
+        lambda x: None if pd.isnull(x) or x.strip() == "" else x.strip()
+    )
+    df["Subcategory"] = df["Subcategory"].fillna("All").astype(str)
+    return df
+
+
+def get_ll_procedures_df(path):
+    ll_mapping = {
+        "study procedures": "study_assessments_general",
+        "procedural risks": "procedure_risks",
+    }
+
+    ll_procedures_df = pd.read_excel(path, sheet_name="Study Procedures", dtype=str)
+    ll_procedures_df.columns = ll_procedures_df.columns.map(lambda x: x.strip())
+
+    ll_procedures_df["TA"] = ll_procedures_df["TA"].map(
+        lambda x: None if pd.isnull(x) or x.strip() == "" else x.strip()
+    )
+    ll_procedures_df["Subcategory"] = ll_procedures_df["Subcategory"].map(
+        lambda x: None if pd.isnull(x) or x.strip() == "" else x.strip()
+    )
+    ll_procedures_df = ll_procedures_df[
+        ll_procedures_df["Status"].map(
+            lambda x: False if pd.isnull(x) else "approved" in x.lower().strip()
+        )
+    ]
+
+    # Replace with All before ffill because of edge cases with merged cells
+    ll_procedures_df.loc[
+        ~pd.isnull(ll_procedures_df["ICF Topic"]) & pd.isnull(ll_procedures_df["TA"]),
+        "TA",
+    ] = "All"
+    ll_procedures_df.loc[
+        ~pd.isnull(ll_procedures_df["ICF Topic"])
+        & pd.isnull(ll_procedures_df["Subcategory"]),
+        "Subcategory",
+    ] = "All"
+
+    # Forward fill for edge cases
+    ll_procedures_df["ICF Topic"] = ll_procedures_df["ICF Topic"].ffill()
+    ll_procedures_df["TA"] = ll_procedures_df["TA"].ffill()
+    ll_procedures_df["Subcategory"] = ll_procedures_df["Subcategory"].ffill()
+    ll_procedures_df["ICF Section"] = ll_procedures_df["ICF Section"].map(
+        lambda x: x.lower().strip()
+    )
+    ll_procedures_df["ICF Section"] = ll_procedures_df["ICF Section"].map(
+        lambda x: ll_mapping[x] if x in ll_mapping else x
+    )
+    ll_procedures_df["Approved Adult Language"] = ll_procedures_df[
+        "Approved Adult Language"
+    ].map(lambda x: None if pd.isnull(x) or x.lower() == "not applicable" else x)
+    ll_procedures_df = ll_procedures_df.dropna(subset="Approved Adult Language")
+
+    return ll_procedures_df
+
+
+def get_dct_df(path):
+    dct_df = pd.read_excel(path, sheet_name="DCT ", dtype=str)
+    dct_df = dct_df[
+        dct_df["Status"].map(
+            lambda x: False if pd.isnull(x) else "approved" in x.lower().strip()
+        )
+    ]
+
+    dct_df["Vendor"] = dct_df["Vendor"].map(
+        lambda x: (
+            None if pd.isnull(x) or x.lower() == "any" or x.lower() == "N/A" else x
+        )
+    )
+
+    dct_df["Vendor"] = dct_df["Vendor"].fillna("Other DCT")
+    dct_df["ICF Topic"] = dct_df["ICF Topic"].map(
+        lambda x: x.split("\n\n")[-1] if not pd.isnull(x) else ""
+    )
+    dct_df["UNIQUE_APPS"] = dct_df["Vendor"] + " - " + dct_df["ICF Topic"]
+    dct_df = dct_df.set_index("UNIQUE_APPS")
+
+    return dct_df
+
+
+LL_PATH = "../data/language_library/ICF Language Library_SSU_DSS_local.xlsx"
+
+TA_DF = get_ta_df(LL_PATH)
+STUDY_PROCEDURES_DF = get_ll_procedures_df(LL_PATH)
+DCT_DF = get_dct_df(LL_PATH)
+
+
+TAS = set(TA_DF["TA"]).union(set(STUDY_PROCEDURES_DF["TA"]))
+TAS = sorted([ta for ta in TAS if "all" != ta.lower()])
+
+SUBCATEGORIES = set(TA_DF["Subcategory"]).union(set(STUDY_PROCEDURES_DF["Subcategory"]))
+SUBCATEGORIES = sorted([sub for sub in SUBCATEGORIES if "all" != sub.lower()])
+
+
+pages/autodrafter/layout.py
+
+
+import dash_mantine_components as dmc
+from helpers import iconify
+from dash  import dcc, html
+import dash_pdf
+from pages.autodrafter.formInputs import make_questions
+from pages.autodrafter.dct import dct_layout
+
+
+def makeAccordion(metadata):
+    steps = list(metadata.values())
+    accordionItems =[
+        dmc.AccordionItem(
+            value='upload',
+            children = [
+                dmc.AccordionControl(
+                    pos = 'relative',
+                    
+                    icon=iconify(
+                        icon="cuida:upload-outline",
+                        color='rgba(0, 167, 181, 1)',
+                        width=30
+                    ),
+                    children=[
+                        dmc.Text(
+                            'Upload Word Document', 
+                            size="md", 
+                            w = '70%',
+                            fw=500, 
+                            lh=2.2
+                        ),
+                        dmc.Box(
+                            w = '30%',
+                            m = 5,
+                            style = {'position':'absolute', 'right':'5px', 'top':'0'},
+                            children = [
+                                dmc.Flex(
+                                    align='flex-end',
+                                    style = {  'float':'right'},
+                                    gap=5,
+                                    children = [
+                                        dmc.ActionIcon( 
+                                            id="upload-step-icon-progress", 
+                                            variant="light", 
+                                            radius=50, 
+                                            size=33, 
+                                            color='red',
+                                            style = { "transform": "translateY(20%)" },
+                                            children = iconify("material-symbols-light:wifi-tethering-rounded", rotate=3)
+                                        ),
+                                        dmc.Box(
+                                            children = [
+                                                dmc.Group(
+                                                    gap = 5,
+                                                    children = [
+                                                        dmc.Text(
+                                                            '0%',
+                                                            fw='bold',  
+                                                            size = 'md', 
+                                                            miw = 30, 
+                                                            id='upload-step-percent-label'
+                                                        ), 
+                                                        dmc.Text(
+                                                            'Complete',  
+                                                            size = 'sm', 
+                                                            c = 'gray'
+                                                        )
+                                                    ]
+                                                ),
+                                                dmc.Progress(
+                                                    value=0, 
+                                                    size="xs", 
+                                                    radius = 20, 
+                                                    id="upload-step-percent-progress" 
+                                                )
+                                            ]
+                                        )
+                                    ]
+                                )
+                            ]
+                        )
+                    ]
+                ),
+                dmc.AccordionPanel(
+                    dmc.Center(
+                        pb = 30,
+                        children = [
+                            dcc.Upload(
+                                style = {
+                                    'border': '1px dashed rgb(206, 212, 218)',  
+                                    'borderRadius': '5px', 
+                                },
+                                id='document-uploader',
+                                children=dmc.Stack(
+                                    id='upload-content-area', 
+                                    w='50vw',
+                                   m = 15,
+                                    align='center',
+                                    style = {'padding': '1rem 1rem 3.125rem'},
+                                    children=[
+                                        iconify(
+                                            'fa6-solid:upload', 
+                                            width = 60, 
+                                            color = '#492869'
+                                        ),
+                                        dmc.Text(
+                                            'Drag and drop files here to upload.', 
+                                            className='upload-text', 
+                                            
+                                            id='name-of-uploaded-file'
+                                        ),
+                                        dmc.Button(
+                                            "Select File",
+                                            color='vp',
+                                            style = {
+                                                'position': 'absolute', 
+                                                'bottom': '-1.2rem', 'width': '15.625rem'
+                                            },
+                                            id='upload-button',
+                                            radius='lg',
+                                        )
+                                    ]
+                                )
+                            ) 
+                        ]
+                    )
+                )
+            ]
+        )
+    ]
+
+    for step in steps:
+        accordionItems.append(
+            dmc.AccordionItem(
+                value=step['stepID'],
+                children = [
+                    dmc.AccordionControl(
+                        pos = 'relative',
+                        # py = 6,
+                        icon=iconify(
+                            icon=step['stepIcon'],
+                            color='rgba(0, 167, 181, 1)',
+                            width=30
+                        ),
+                        children=[   
+                            dmc.Text(step['stepName'], size="md", fw=500, lh=2.2,  w = '70%',),
+                            dmc.Text(step['stepDescription'], size="sm", fw=400, c="dimmed",  w = '70%'),
+                            dmc.Box(
+                                w = '30%',
+                                m = 5,
+                                style = {'position':'absolute', 'right':'5px', 'top':'0' },
+                                children = [
+                                    dmc.Flex(
+                                        align='flex-end',
+                                        style = {  'float':'right'},
+                                        gap=5,
+                                        children = [
+                                            dmc.ActionIcon( 
+                                                id={
+                                                    'type':'step-icon-progress', 
+                                                    'index':step['stepID']
+                                                }, 
+                                                variant="light", 
+                                                radius=50, 
+                                                size=33, 
+                                                color='red',
+                                                style = { "transform": "translateY(20%)" }
+                                            ),
+                                            dmc.Box(
+                                                children = [
+                                                    dmc.Group(
+                                                        gap = 5, 
+                                                        children = [
+                                                            dmc.Text(
+                                                                '0%',
+                                                                fw='bold',
+                                                                miw = 30,   
+                                                                size = 'md',  
+                                                                id={
+                                                                    'type':'step-percent-label', 
+                                                                    'index':step['stepID']
+                                                                }
+                                                            ), 
+                                                            dmc.Text(
+                                                                'Complete',  
+                                                                size = 'sm', 
+                                                                c = 'gray'
+                                                            )
+                                                        ]
+                                                    ),
+                                                    dmc.Progress(
+                                                        value=0, 
+                                                        size="xs", 
+                                                        radius = 20, 
+                                                        id={
+                                                            'type':'step-percent-progress', 
+                                                            'index':step['stepID']
+                                                        } 
+                                                    )
+                                                ]
+                                            )
+                                        ]
+                                    )
+                                ]
+                            )
+                        ]
+                    ),
+                    dmc.AccordionPanel(
+                        children = make_questions (step) 
+                    )
+                ]
+            )
+        )
+
+
+
+    dct_accordion =  dmc.AccordionItem(
+        value='dct',
+        children = [
+            dmc.AccordionControl(
+                pos = 'relative',
+                icon=iconify(
+                    icon="fluent:form-multiple-48-regular",
+                    color='rgba(0, 167, 181, 1)',
+                    width=30
+                ),
+                children=[
+                    dmc.Text(
+                        'Select DCT Vendors to Import from Language Library', 
+                        size="md", 
+                        fw=500, 
+                        lh=2.2,
+                         w = '70%',
+                    ),
+                    dmc.Box(
+                        w = '30%',
+                        m = 5,
+                        style = {'position':'absolute', 'right':'5px', 'top':'0'},
+                        children = [
+                            dmc.Flex(
+                                align='flex-end',
+                                style = {  'float':'right'},
+                                gap=5,
+                                children = [
+                                    dmc.ActionIcon( 
+                                        iconify('material-symbols-light:wifi-tethering-rounded', color='red', rotate=3),
+                                        id="dct-step-icon-progress", 
+                                        variant="light", 
+                                        radius=50, 
+                                        size=33, 
+                                        color='red',
+                                        style = { "transform": "translateY(20%)" }
+                                    ),
+                                    dmc.Box(
+                                        children = [
+                                            dmc.Group(
+                                                gap = 5,
+                                                children = [
+                                                    dmc.Text(
+                                                        '0%',
+                                                        fw='bold',
+                                                        miw = 30,   
+                                                        size = 'md',  
+                                                        id='dct-step-percent-label'
+                                                    ), 
+                                                    dmc.Text(
+                                                        'Complete',  
+                                                        size = 'sm', 
+                                                        c = 'gray'
+                                                    )
+                                                ]
+                                            ),
+                                            dmc.Progress(
+                                                value=0, 
+                                                size="xs", 
+                                                radius = 20, 
+                                                color = 'red',
+                                                id="dct-step-percent-progress" 
+                                            )
+                                        ]
+                                    )
+                                ]
+                            )
+                        ]
+                    )
+                ]
+            ),
+            dmc.AccordionPanel(
+                dct_layout
+            )
+        ]
+    )
+        
+
+    return dmc.Accordion(
+        chevron = None,
+        id='checkbox-filters-accordion',
+        styles = {
+            'item':{
+                'margin':6,
+                "boxShadow":"rgba(0, 0, 0, 0.1) 0px 1px 2px 1px",
+                'backgroundColor':'transparent',
+            }
+        },
+        radius = 'md',
+        variant = "separated", 
+        children=accordionItems + [dct_accordion]
+    )
+
+aside = dmc.Box(
+            pos = "relative",
+            h = '100%',
+            style = { 
+                "boxShadow":"rgba(0, 0, 0, 0.1) 0px 0px 5px 0px, rgba(0, 0, 0, 0.1) 0px 0px 1px 0px",
+                 "borderRadius":"10px",
+                },
+           
+            children = [
+            dmc.Center(
+                w = '100%',
+                h = 180,
+                children = [
+                dmc.RingProgress(
+                    roundCaps = True,
+                    mt = 20,
+                    size = 140,
+                    thickness=8,
+                    id="ring-progress-total-value",
+                    sections=[{"value": 0, "color": "red"}],
+                    label=dmc.Stack(
+                        gap = 0,
+                        align='center',
+                        children=[
+                            dmc.Text(
+                                id="ring-progress-total-label", 
+                                ta="center", 
+                                fw='bold', 
+                                style={"fontSize": 20}, mb= '-10px'
+                                ),
+                            dmc.Text('Complete',  size = 'sm', c = 'gray'),
+                            ]
+                        )
+                    ),
+            
+                ]
+            ),
+            dmc.Text(
+                "Total Progress",
+                c = 'vp',
+               
+                fw=700,
+                style={"fontSize": 18},
+                ta='center'
+            ),
+                     
+        dmc.Stack(
+            p = 20,
+            m = 15, 
+            pos="relative",
+            align="center",
+                style = {
+                    "boxShadow":"rgba(0, 0, 0, 0.05) 0px 0px 0px 1px",
+                    "borderRadius":"20px",
+                },
+            children=[
+                dmc.LoadingOverlay(
+                    visible=False,
+                    id="loading-overlay-message",
+                    overlayProps={"radius": "sm", "blur": 0.1},
+                    loaderProps={
+                    "variant": "custom",
+                    "children": dmc.Image(
+                        h=110,
+                        radius="md",
+                        src="/assets/Loader.gif",
+                        ),
+                    },
+                    zIndex=10,
+                ),
+                dmc.Box(
+                    children = [
+                        dmc.Text(
+                            'No Draft To download',
+                            id = 'ready-download-message',
+                            h = 110, pt = 25
+                        )
+                    ]
+                ),
+                dmc.Button(
+                        "Download",
+                        radius=20,
+                        variant="outline",
+                        disabled = True,
+                        id ='download-button',
+                        fz = 16,                               
+                        leftSection=iconify(icon="material-symbols-light:download-rounded", width = 25),
+                    ),
+                ]
+            ),
+
+
+        dmc.Box(
+            w = 'calc(100% - 20px)',
+            pos = "absolute", bottom = 0,
+            children = [
+                 dmc.Button(
+            "Tracked Changes Guide",
+            variant="outline",
+            color = '#492869',
+            id = 'tracked-changes-btn',
+            m = 10,
+            fullWidth=True,
+            n_clicks=0,
+            leftSection=iconify(icon="stash:arrow-up-light"),
+     
+        ),
+            ]
+        )
+    ]
+)
+
+
+optoinsMenu =  dmc.Box(
+    py = 10,
+    children = dmc.Menu(
+    children = [
+        dmc.MenuTarget(
+            dmc.Button(
+                color = 'dark',
+                size = 'sm',
+                fw =200,
+                leftSection=iconify('ion:options-outline', width=20),
+                variant="subtle",
+                children = [
+                    'Options'
+                ]
+            )
+        ),
+        dmc.MenuDropdown(
+            p=15,
+            pl = 10,
+            children = [
+                                 dmc.Group(
+                    mb = 10, ml = 20, px = 15, py = 5,
+                    style = {
+                        "boxShadow":"rgba(17, 17, 26, 0.05) 0px 1px 0px, rgba(17, 17, 26, 0.1) 0px 0px 8px",
+                "borderRadius":"20px",
+
+                    },
+                    children = [
+                        dmc.Text("Highlight",  size = 'sm', miw = '90px'),
+                        dmc.SegmentedControl(
+                            id = 'highlight',
+                            value="False",
+                            size = 'xs',
+                            radius = 15,
+                            px = 10,
+                            data=[
+                                {
+                                    "value": 'False',
+                                    "label": "Off"
+                                },
+                                {
+                                    "value": 'True',
+                                    "label": "On"
+                                }
+                            ]
+                        )
+                    ]
+                ),
+                dmc.Group(
+                    mb = 10, ml = 20, p = 10, py = 5,
+                    style = {
+                        "boxShadow":"rgba(17, 17, 26, 0.05) 0px 1px 0px, rgba(17, 17, 26, 0.1) 0px 0px 8px",
+                        "borderRadius":"20px",
+                    },
+                    children = [
+                        dmc.Text("Preview",  miw = '90px'),
+                        dmc.SegmentedControl(
+                            id = 'disable-preview',
+                            value="True",
+                            size = 'xs',
+                            radius = 15,
+                            px = 10,
+                            data=[
+                                {
+                                    "value": "False",
+                                    "label": "Off"
+                                },
+                                {
+                                    "value": "True",
+                                    "label": "On"
+                                }
+                            ]
+                        )
+                    ]
+                ),
+            ]
+        ),
+    ],
+    trigger="hover",
+))
+bottomNavigation = dmc.Box(
+    pos='relative',
+    style = {  
+        "zIndex":200,
+         "boxShadow":"rgba(17, 17, 26, 0.05) 0px 1px 0px, rgba(17, 17, 26, 0.1) 0px 0px 8px",
+         "borderRadius":"6px",
+    },
+    children = [ 
+        optoinsMenu,
+
+        dmc.Flex(
+            opacity=1,
+                 p = 10,
+                 pos='absolute',
+                 right= 10, bottom =0,
+            children=[
+                dmc.Button(
+                    "Preview",    
+                    variant="outline", 
+                    leftSection=iconify(icon="icon-park-outline:preview-open", width=20), 
+                    styles={'label':{'fontSize':'18px'}, 'section':{'margin':2}}, 
+                    id='preview-draft', 
+                    color='blue', 
+                    disabled = True,
+                    mr=20,  
+                    size="sm"
+                ),
+                dmc.Button(
+                    "Generate",  
+                    leftSection=iconify(icon="uis:process", width=20),  
+                    styles={'label':{'fontSize':'18px'}, 'section':{'margin':2}},
+                    id='generate-draft', 
+                    color='green', 
+                    size="sm"
+                ),  
+            ]
+        ),
+
+    ]
+
+)
+
+
+
+preview_page =  dmc.Modal(
+    id="preview-pdf-modal",
+    styles={
+        'header':{'minHeight':0, 'minHeight':0, 'padding':0},
+        'close':{'position':'absolute', 'left':10, 'top':10, 'width':70, 'height':30}
+    },
+    centered=True,
+    fullScreen=True,
+    zIndex = 200000,
+    closeButtonProps = {
+        'icon':iconify('eva:arrow-back-outline', width=25 ),
+        'children':   dmc.Text('Back', size= 'lg')
+    },
+    children=[
+        dmc.Box(
+            pt= 20,
+            pos = 'absolute',
+            top= 0, right=0, bottom=0, left=0,
+            h = '100%',
+            style= {"textAlign":"center"},
+            children = [
+                dmc.Center(
+                    h = 'calc(100% - 100px)',
+                    p = 0,
+                    mx='25%',
+                    children = [
+                    dmc.LoadingOverlay(
+                        visible=False,
+                        id="loading-overlay",
+                        overlayProps={"radius": "sm", "blur": 0.1},
+                        loaderProps={
+                        "variant": "custom",
+                        "children": dmc.Image(
+                            h=150,
+                            radius="md",
+                            src="/assets/Loader.gif",
+                        ),
+                    },
+                        zIndex=10,
+                    ),
+                        dash_pdf.PDF(
+                            id='pdf-viewer',
+                            data='',
+                            buttonClassName="pdf-pagination-buttons",
+                            labelClassName="pdf-pagination-label",
+                            controlsClassName="pdf-pagination-controls",
+                        )
+                    ]
+                ),
+             
+                dmc.Button(
+                    "Re-Generate",
+                    pos = 'absolute',
+                    right='calc(50% - 280px)', 
+                    styles={'label':{'fontSize':'18px'}, 'section':{'margin':2}},
+                    bottom=20, 
+                    color='green', 
+                    size="sm",
+                    id ='regenerate-button',
+                    leftSection=iconify(icon="uis:process", width=20), 
+                ),        
+            ]
+        )
+    ]
+)
+
+
+
+
+
+pages/autodrafter/output.py
+
+import pandas as pd
+import base64
+import subprocess
+import os
+from pathlib import Path
+import uuid
+from src.run_icf_creation import run_autodrafter
+import io
+import base64
+import dash_mantine_components as dmc
+from helpers import iconify
+from dash import (
+    Output,
+    Input,
+    callback,
+    State,
+    ctx,
+    ALL,
+    set_props,
+    no_update,
+    register_page,
+    dcc,
+    clientside_callback,
+    MATCH,
+)
+
+DEFAULT_TEMPLATE_FILEPATH = (
+    "../data/_Informed Consent Form Template Main Adult_v5 (modified).docx"
+)
+
+
+def convert_word_to_pdf(input_path):
+    command = [
+        "soffice",
+        "--headless",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        os.path.dirname(input_path),
+        input_path,
+    ]
+    result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return result.returncode
+
+def backend_response(message, isSucess=True):
+    if isSucess:
+        icon = "mdi-light:check-circle"
+        icon = "lets-icons:done-duotone"
+
+        
+        color = 'green'
+    else:
+        icon = "ei:close-o"
+        color = 'red'
+    return dmc.Stack(
+                align= 'center',
+                gap = 0,
+                children = [
+                     dmc.ActionIcon( 
+                        iconify(icon, color=color, width = 50),
+                        variant="light", 
+                        radius='50%', 
+                        size=70, 
+                        color=color,
+                    ),
+                    dmc.Text(message),
+                
+                ]
+            )
+
+@callback(
+    Output("pdf-viewer", "data"),
+    Output("ready-download-message", "children"),
+
+    Input("generate-draft", "n_clicks"),
+    Input("regenerate-button", "n_clicks"),
+    State("disable-preview", "value"),
+    State("app-front-end-store", "data"),
+    State("app-front-end-store-docx", "data"),
+    
+    State("highlight", "value"),
+    prevent_initial_call=True,
+)
+def back_end_call(genarate, regenarate, isPreview, store, store_word, highlight):
+    highlight = True if highlight == "True" else False
+    print('*' * 100)
+    print(store)
+
+    store =  {
+        key: None if value == "Skip for Now" else value
+        for key, value in store.items()
+    }
+    print(store)
+    
+    # print(store_word["uploded_docx_content"])
+
+    # HERE WE MAKE A CALL TO GENEREATE THE WORD DOCX
+    #   ******************************************
+    #   ******************************************
+    #   ******************************************
+    #                   END
+    protocol_contents = base64.b64decode(store_word["uploded_docx_content"].split(",")[1])
+    protocol_IO = io.BytesIO(protocol_contents)
+    out_file = io.BytesIO()
+    run_autodrafter(
+        protocol_path=protocol_IO,
+        template_path=DEFAULT_TEMPLATE_FILEPATH,
+        outfile_path=out_file,
+        choices_dict=store,
+        highlight=highlight,
+        run_choice_prompts=False,
+        logger=None,
+    )
+    # HANDLING NONE RESPONSE
+    
+    generated_contents = base64.b64encode(out_file.getvalue()).decode()
+
+    # generated_contents = None
+    if not generated_contents:
+        
+        set_props("loading-overlay", {"visible": False})
+        set_props("generate-draft", {"loading": False})
+        set_props("loading-overlay-message", {"visible": False})
+        set_props("download-button", {"disabled": True})
+        set_props("preview-draft", {"disabled": True})
+
+        return no_update, backend_response('There is an issue', isSucess=False)
+
+    store["generated_docx_content"] = generated_contents
+    set_props("app-front-end-store", {"data": store})
+
+    if isPreview =='True': 
+        uuid_file_name = str(uuid.uuid1())
+        decoded = base64.b64decode(generated_contents)
+
+        with open(f"{uuid_file_name}.docx", "wb") as f:
+            f.write(decoded)
+
+        convert_word_to_pdf(f"{uuid_file_name}.docx")
+        pdf_bytes = Path(f"{uuid_file_name}.pdf").read_bytes()
+        os.remove(f"{uuid_file_name}.docx")
+        os.remove(f"{uuid_file_name}.pdf")
+        pdf_base64 = base64.b64encode(pdf_bytes).decode("utf-8")
+    else:
+        pdf_bytes = Path(f"no_preview.pdf").read_bytes()
+        pdf_base64 = base64.b64encode(pdf_bytes).decode("utf-8")
+
+    set_props("loading-overlay", {"visible": False})
+    set_props("generate-draft", {"loading": False})
+    set_props("download-button", {"disabled": False})
+    set_props("preview-draft", {"disabled": False})
+
+    set_props("loading-overlay-message", {"visible": False})
+
+
+    return f"data:application/pdf;base64,{pdf_base64}", backend_response('Click to Download Draft')
+
+
+app/authenticate.py
+import requests
+import base64
+from utils import get_aws_secret
+from flask import session, request
+import urllib
+
+
+
+def get_cognito_secret(app_environment, secret_postfix="icf-autodrafter/secrets"):
+
+    COGNITO_DOMAIN = "https://vrtx-test.auth.us-east-1.amazoncognito.com"
+    secret = get_aws_secret(app_environment, secret_postfix)
+
+    return COGNITO_DOMAIN, secret['client-id'], secret['client-secret'], secret['callback_url']
+
+
+def initialise_session_vars():
+    """
+    Initialise Flask session variables.
+
+    Returns:
+        Nothing.
+    """
+    # Set Session VARS
+    if "auth_code" not in session:
+        session["auth_code"] = ""
+    if "authenticated" not in session:
+        session["authenticated"] = False
+    if "user_name" not in session:
+        session["user_name"] = ""
+
+# ----------------------------------
+# Get authorization code after login
+# ----------------------------------
+
+
+def get_auth_code():
+    """
+    Gets auth_code state variable.
+
+    Returns:
+        Nothing.
+    """
+    url = request.headers.get('Referer')
+    parsed_url = urllib.parse.urlparse(url)
+    auth_query_params = urllib.parse.parse_qs(parsed_url.query)
+
+    try:
+        auth_code = dict(auth_query_params)["code"][0]
+    except (KeyError, TypeError):
+        auth_code = ""
+
+    return auth_code
+
+
+# ----------------------------------
+# Set authorization code after login
+# ----------------------------------
+def set_auth_code():
+    """
+    Sets auth_code state variable.
+
+    Returns:
+        Nothing.
+    """
+    initialise_session_vars()
+    auth_code = get_auth_code()
+    session["auth_code"] = auth_code
+
+
+# -------------------------------------------------------
+# Use authorization code to get user access and id tokens
+# -------------------------------------------------------
+def get_user_tokens(auth_code, client_id, client_secret, app_uri):
+    """
+    Gets user tokens by making a post request call.
+
+    Args:
+        auth_code: Authorization code from cognito server.
+
+    Returns:
+        {
+        'access_token': access token from cognito server if user is successfully authenticated.
+        'id_token': access token from cognito server if user is successfully authenticated.
+        }
+
+    """
+
+    # Variables to make a post request
+    token_url = f"https://vrtx-test.auth.us-east-1.amazoncognito.com/oauth2/token"
+    client_secret_string = f"{client_id}:{client_secret}"
+    client_secret_encoded = str(
+        base64.b64encode(client_secret_string.encode("utf-8")), "utf-8"
+    )
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Authorization": f"Basic {client_secret_encoded}",
+    }
+    body = {
+        "grant_type": "authorization_code",
+        "client_id": client_id,
+        "code": auth_code,
+        "redirect_uri": app_uri,
+    }
+
+    token_response = requests.post(token_url, headers=headers, data=body)
+    try:
+        access_token = token_response.json()["access_token"]
+        id_token = token_response.json()["id_token"]
+    except (KeyError, TypeError):
+        access_token = ""
+        id_token = ""
+
+    return access_token, id_token
+
+
+# ---------------------------------------------
+# Use access token to retrieve user information
+# ---------------------------------------------
+def get_user_info(access_token):
+    """
+    Gets user info from aws cognito server.
+
+    Args:
+        access_token: string access token from the aws cognito user pool
+        retrieved using the access code.
+
+    Returns:
+        userinfo_response: json object.
+    """
+    userinfo_url = f"https://vrtx-test.auth.us-east-1.amazoncognito.com/oauth2/userInfo"
+    headers = {
+        "Content-Type": "application/json;charset=UTF-8",
+        "Authorization": f"Bearer {access_token}",
+    }
+
+    userinfo_response = requests.get(userinfo_url, headers=headers)
+
+    return userinfo_response.json()
+
+
+def set_st_state_vars(client_id, client_secret, app_uri):
+    """
+    Sets the flask session after user authentication.
+    Returns:
+        Nothing.
+    """
+    initialise_session_vars()
+    auth_code = get_auth_code()
+    access_token, id_token = get_user_tokens(auth_code, client_id, client_secret, app_uri)
+    user_info = get_user_info(access_token)
+
+    if access_token != "":
+        session["auth_code"] = auth_code
+        session["authenticated"] = True
+        session['email'] = user_info['email']
+        session['user_name'] = user_info['username'].split('_')[-1]
+
+
+# -----------------------------
+# Login/ Logout HTML components
+# -----------------------------
+
+def get_redirect_link(client_id, app_uri):
+    login_link = f"https://vrtx-test.auth.us-east-1.amazoncognito.com/login?client_id={client_id}&response_type=code&scope=email+openid&redirect_uri={app_uri}"
+    return login_link
+
+
+def authenticate_user(env):
+    """Check authentication when user lands on the home page"""
+    env = str.lower(env)
+    _, CLIENT_ID, CLIENT_SECRET, APP_URI = get_cognito_secret(env)
+    set_st_state_vars(client_id=CLIENT_ID,
+                        client_secret=CLIENT_SECRET,
+                        app_uri=APP_URI)
+
+
+
+
+
+
+
+
+
+
+
+     
+     
+
+    
